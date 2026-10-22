@@ -188,6 +188,12 @@ class TestDnsResolution:
         with pytest.raises(UrlRefusedError, match=r"^The URL's host name is not valid$"):
             resolve_pinned_url(url)
 
+    def test_a_trusted_host_the_idna_codec_refuses_is_refused_too(self):
+        """A host on `MCP_ALLOWED_HOSTS` skips the address check, so a listed
+        `a..b` would otherwise be saved and fail every probe after."""
+        with pytest.raises(UrlRefusedError, match=r"^The URL's host name is not valid$"):
+            validate_webhook_url("http://a..b/", trusted_hosts=frozenset({"a..b"}))
+
 
 # validate_webhook_url - edge cases
 

@@ -190,6 +190,16 @@ def _checked_target(url: str, allowed_schemes: frozenset[str]) -> tuple[str, int
     hostname = parsed.hostname
     if not hostname:
         raise UrlRefusedError("The URL has no hostname")
+    try:
+        hostname.encode("idna")
+    except UnicodeError as err:
+        # The resolver encodes the name with this codec, which refuses an empty
+        # label ("a..b") or one over 63 characters with an error that subclasses
+        # ValueError but not UrlRefusedError - so callers that quote refusals
+        # answered a 500 with the codec's message (#2352). Checked with the form,
+        # not in `_pinned`, so a host on `MCP_ALLOWED_HOSTS`, which skips the
+        # address half, cannot save a URL nothing can resolve either.
+        raise UrlRefusedError("The URL's host name is not valid") from err
 
     # Reject URLs with userinfo (credentials) to prevent URL parsing ambiguities
     # e.g. http://user:pass@host/ or http://foo@169.254.169.254%00@public.com/
@@ -217,8 +227,6 @@ def _pinned(hostname: str, port: int) -> PinnedAddress:
 
     Raises:
         SSRFBlockedError: If the address is blocked, or the name does not resolve.
-        UrlRefusedError: If the name cannot be encoded for resolution - the IDNA
-            codec refuses an empty label ("a..b"), for example.
     """
     try:
         addr = ipaddress.ip_address(hostname)
@@ -236,13 +244,6 @@ def _pinned(hostname: str, port: int) -> PinnedAddress:
         addr_infos = socket.getaddrinfo(hostname, port, proto=socket.IPPROTO_TCP)
     except socket.gaierror as err:
         raise SSRFBlockedError(f"Blocked: unable to resolve hostname {hostname!r}") from err
-    except UnicodeError as err:
-        # The IDNA codec refuses to encode a host whose labels are empty ("a..b"),
-        # too long, or otherwise not a name. The error subclasses ValueError but not
-        # UrlRefusedError, so callers that quote refusals (mcp_connection._checked_url,
-        # the browser's cdp_url publish check, OAuth's discovery hops) would answer
-        # a 500 with the codec's message instead of our refusal (#2352).
-        raise UrlRefusedError("The URL's host name is not valid") from err
 
     if not addr_infos:
         raise SSRFBlockedError(f"Blocked: hostname {hostname!r} did not resolve to any address")
