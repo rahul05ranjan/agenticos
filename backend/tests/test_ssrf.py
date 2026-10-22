@@ -172,6 +172,25 @@ class TestDnsResolution:
         ):
             validate_webhook_url("https://empty.example.com/hook")
 
+    def test_an_idna_error_from_getaddrinfo_is_refused_not_500(self):
+        """A host the IDNA codec refuses ("a..b", empty label) is a refusal in
+        our words, not a UnicodeEncodeError the callers do not catch (#2352)."""
+
+        def _raise(*_args: object, **_kwargs: object) -> list[object]:
+            raise UnicodeEncodeError("idna", "a..b", 2, 3, "label empty")
+
+        with (
+            patch("app.core.sanitize.socket.getaddrinfo", _raise),
+            pytest.raises(UrlRefusedError, match="host name is not valid"),
+        ):
+            validate_webhook_url("http://a..b/")
+
+        with (
+            patch("app.core.sanitize.socket.getaddrinfo", _raise),
+            pytest.raises(UrlRefusedError, match="host name is not valid"),
+        ):
+            resolve_pinned_url("http://a..b/")
+
 
 # validate_webhook_url - edge cases
 
