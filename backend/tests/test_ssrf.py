@@ -172,24 +172,21 @@ class TestDnsResolution:
         ):
             validate_webhook_url("https://empty.example.com/hook")
 
-    def test_an_idna_error_from_getaddrinfo_is_refused_not_500(self):
-        """A host the IDNA codec refuses ("a..b", empty label) is a refusal in
-        our words, not a UnicodeEncodeError the callers do not catch (#2352)."""
+    @pytest.mark.parametrize(
+        "url",
+        ["http://a..b/", "http://.a/", f"http://{'x' * 64}.com/"],
+        ids=["empty label", "leading dot", "label over 63"],
+    )
+    def test_a_host_the_idna_codec_refuses_is_refused_not_500(self, url: str):
+        """An empty or over-long label is a refusal in our words, not the codec's
+        `UnicodeEncodeError` that callers quoting refusals do not catch (#2352).
 
-        def _raise(*_args: object, **_kwargs: object) -> list[object]:
-            raise UnicodeEncodeError("idna", "a..b", 2, 3, "label empty")
-
-        with (
-            patch("app.core.sanitize.socket.getaddrinfo", _raise),
-            pytest.raises(UrlRefusedError, match="host name is not valid"),
-        ):
-            validate_webhook_url("http://a..b/")
-
-        with (
-            patch("app.core.sanitize.socket.getaddrinfo", _raise),
-            pytest.raises(UrlRefusedError, match="host name is not valid"),
-        ):
-            resolve_pinned_url("http://a..b/")
+        The real resolver, unpatched: the codec raises before any DNS query.
+        """
+        with pytest.raises(UrlRefusedError, match=r"^The URL's host name is not valid$"):
+            validate_webhook_url(url)
+        with pytest.raises(UrlRefusedError, match=r"^The URL's host name is not valid$"):
+            resolve_pinned_url(url)
 
 
 # validate_webhook_url - edge cases
